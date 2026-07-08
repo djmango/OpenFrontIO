@@ -21,10 +21,27 @@ import { IntentTranslator } from "./translator";
 import { Choice } from "./types";
 import { WorkerModels } from "./workerModels";
 
+export interface WebBotDebugInfo {
+  tick: number;
+  action: string;
+  value: number;
+  tiles: number;
+  troops: number;
+  probs: number[];
+}
+
 export interface WebBotOptions {
   greedy?: boolean;
   modelsBaseUrl?: string;
-  onDebug?: (info: { value: number; action: string }) => void;
+  onDebug?: (info: WebBotDebugInfo) => void;
+}
+
+function softmax(logits: Float32Array): number[] {
+  let max = -Infinity;
+  for (const v of logits) if (v > max) max = v;
+  const exps = Array.from(logits, (v) => Math.exp(v - max));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  return exps.map((v) => v / sum);
 }
 
 export class WebBot {
@@ -127,7 +144,17 @@ export class WebBot {
       choice.quantityFrac = sampleBeta(alpha, beta, this.greedy);
     }
 
-    this.onDebug?.({ value: out.value, action: name });
+    if (this.onDebug) {
+      const me = game.playerByClientID(clientID);
+      this.onDebug({
+        tick: game.ticks(),
+        action: name,
+        value: out.value,
+        tiles: me?.numTilesOwned() ?? 0,
+        troops: me?.troops() ?? 0,
+        probs: softmax(out.action),
+      });
+    }
 
     return this.translator.translate(
       choice,

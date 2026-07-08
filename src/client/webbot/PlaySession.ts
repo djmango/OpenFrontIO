@@ -14,7 +14,7 @@ import type { Intent, ServerMessage, Turn } from "../../core/Schemas";
 import { LobbyConfig } from "../ClientGameRunner";
 import { terrainMapFileLoader } from "../TerrainMapFileLoader";
 import { Transport } from "../Transport";
-import { WebBot } from "./bot";
+import { WebBot, WebBotDebugInfo } from "./bot";
 
 const DECISION_TICKS = 10;
 
@@ -24,6 +24,10 @@ export interface PlaySessionOptions {
   greedy?: boolean;
   log?: (msg: string) => void;
   onStatus?: (status: string) => void;
+  /** Fired after every WebBot.decide() - drives the MODEL debug overlay. */
+  onDecision?: (info: WebBotDebugInfo) => void;
+  /** Fired once when the game ends (win or elimination). */
+  onGameEnded?: (result: { winner: unknown; alive: boolean }) => void;
 }
 
 export class PlaySession {
@@ -42,7 +46,7 @@ export class PlaySession {
   constructor(private opts: PlaySessionOptions) {
     this.log = opts.log ?? ((m) => console.log(`[webbot] ${m}`));
     this.onStatus = opts.onStatus;
-    this.bot = new WebBot({ greedy: opts.greedy });
+    this.bot = new WebBot({ greedy: opts.greedy, onDebug: opts.onDecision });
 
     const lobbyConfig: LobbyConfig = {
       cosmetics: {},
@@ -159,6 +163,7 @@ export class PlaySession {
         this.log(`game ended: winner=${JSON.stringify(this.lastWinner)} alive=${!dead}`);
         this.onStatus?.(dead ? "eliminated" : "game over");
         this.ended = true;
+        this.opts.onGameEnded?.({ winner: this.lastWinner, alive: !dead });
         break;
       }
 

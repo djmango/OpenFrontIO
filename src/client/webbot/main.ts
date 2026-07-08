@@ -4,7 +4,49 @@
  * server GPU, no Python subprocess - see openfront/src/client/webbot/README
  * for the full pipeline). Wired from Main.ts's bootstrap.
  */
+import { ACTIONS } from "./constants";
 import { PlaySession } from "./PlaySession";
+import type { WebBotDebugInfo } from "./bot";
+
+interface RlDebugEntry {
+  tick: number;
+  desc: string;
+  action: string;
+  tiles: number;
+  troops: number;
+  value?: number;
+  probs?: number[];
+}
+
+declare global {
+  interface Window {
+    __webbotDebug?: { actions: readonly string[]; log: RlDebugEntry[]; live: true };
+    __webbotDone?: { winner: unknown; alive: boolean };
+  }
+}
+
+const MAX_DEBUG_LOG = 500;
+
+/** Feeds openfront/patches/client-replay-tooling.patch's RlDebugOverlay via
+ * scripts/webbot_launcher.py's local /debug/<gameID> sidecar - same wire
+ * format the old server-side rl.play --debug-port used to serve, just
+ * sourced from this in-page decision loop instead of a Python process. */
+function initDebugChannel(): (info: WebBotDebugInfo) => void {
+  window.__webbotDebug = { actions: ACTIONS, log: [], live: true };
+  return (info: WebBotDebugInfo) => {
+    const log = window.__webbotDebug!.log;
+    log.push({
+      tick: info.tick,
+      desc: `${info.action} (v${info.value >= 0 ? "+" : ""}${info.value.toFixed(2)})`,
+      action: info.action,
+      tiles: info.tiles,
+      troops: info.troops,
+      value: info.value,
+      probs: info.probs,
+    });
+    if (log.length > MAX_DEBUG_LOG) log.shift();
+  };
+}
 
 // Auth.ts's anonymous identity (player_persistent_id) lives in localStorage,
 // which is shared by every tab of the same origin+profile. Left alone, a
@@ -95,12 +137,17 @@ export async function startWebBot(params: URLSearchParams): Promise<void> {
     appendLog(msg);
   };
   try {
+    const onDecision = initDebugChannel();
     const session = new PlaySession({
       gameID,
       username: params.get("name") ?? undefined,
       greedy: params.get("greedy") === "1",
       log,
       onStatus: setStatus,
+      onDecision,
+      onGameEnded: (result) => {
+        window.__webbotDone = result;
+      },
     });
     await session.run();
   } catch (err) {
