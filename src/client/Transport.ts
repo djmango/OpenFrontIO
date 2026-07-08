@@ -670,6 +670,15 @@ export class Transport {
     this.sendIntent({ type: "toggle_game_start_timer" });
   }
 
+  /**
+   * Send an already-constructed Intent directly, bypassing the EventBus
+   * intent events. Used by the headless WebBot (src/client/webbot/), which
+   * builds full Intent objects itself rather than driving UI events.
+   */
+  public sendRawIntent(intent: Intent) {
+    this.sendIntent(intent);
+  }
+
   private sendIntent(intent: Intent) {
     if (this.isLocal || this.socket?.readyState === WebSocket.OPEN) {
       const msg = {

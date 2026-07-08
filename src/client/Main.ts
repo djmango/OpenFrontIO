@@ -1090,10 +1090,22 @@ const bootstrap = () => {
   setTimeout(hideCrazyGamesElements, 500);
 };
 
+// ?webbot=<gameID> skips the normal UI and joins that lobby as a
+// browser-native AI player (see src/client/webbot/). Dynamically imported
+// so the ONNX runtime + models stay out of the normal page's bundle.
+const maybeStartWebBot = (): boolean => {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get("webbot")) return false;
+  import("./webbot/main").then(({ startWebBot }) => startWebBot(params));
+  return true;
+};
+
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", bootstrap);
+  document.addEventListener("DOMContentLoaded", () => {
+    if (!maybeStartWebBot()) bootstrap();
+  });
 } else {
-  bootstrap();
+  if (!maybeStartWebBot()) bootstrap();
 }
 
 async function getTurnstileToken(): Promise<{
