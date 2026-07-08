@@ -159,6 +159,9 @@ export class IntentTranslator {
 
     if (name === "noop") return [];
     if (name === "spawn") {
+      // Belt-and-suspenders: SpawnExecution re-rolls if we already placed.
+      const meP = ents.players.find((p) => p.id === me);
+      if (meP && meP.tiles > 0) return [];
       const tile = this.spawnTile(choice.tileRegion ?? -1, classmap);
       if (tile === null) return [];
       return [{ type: "spawn", tile }];

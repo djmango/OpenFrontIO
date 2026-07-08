@@ -155,12 +155,12 @@ export class WebBotFeaturizer {
 
   private legalTile(
     ownersSlot: Uint8Array,
-    spawnPhase: boolean,
+    needsSpawn: boolean,
     gh: number,
     gw: number,
   ): Float32Array {
     const out = new Float32Array(gh * gw);
-    if (!spawnPhase) {
+    if (!needsSpawn) {
       out.fill(1);
       return out;
     }
@@ -261,6 +261,11 @@ export class WebBotFeaturizer {
     spawnPhase: boolean,
     alive: boolean,
     me: number,
+    /** Engine SpawnExecution re-rolls on every spawn intent (relinquish +
+     * re-place). After the first successful pick we must stop sending spawn
+     * or the bot teleports every decision tick and can eventually land on a
+     * tile getSpawnTiles rejects, leaving it with 0 tiles. */
+    needsSpawn: boolean,
   ): {
     legalActions: Float32Array;
     legalPtarget: Float32Array;
@@ -277,9 +282,10 @@ export class WebBotFeaturizer {
         for (const id of ids) ptarget[ai * MAX_SLOTS + lut[id]] = 1;
       }
     };
-    if (spawnPhase) {
+    if (spawnPhase && needsSpawn) {
       act[actionIndex["spawn"]] = 1;
     } else {
+      // Already placed (or post-spawn): wait out the spawn timer / play.
       act[actionIndex["noop"]] = 1;
     }
     if (alive && a && !spawnPhase) {
@@ -422,6 +428,8 @@ export class WebBotFeaturizer {
     const agent = game.playerByClientID(clientID);
     const me = agent ? agent.smallID() : -1;
     const alive = agent ? agent.isAlive() : false;
+    // First successful spawn sets hasSpawned(); further spawn intents re-roll.
+    const needsSpawn = spawnPhase && !(agent?.hasSpawned() ?? false);
     const meSlot = me >= 0 ? lut[me] : 0;
     const { hr, wr } = this;
     const gh = hr / REGION;
@@ -497,8 +505,9 @@ export class WebBotFeaturizer {
       spawnPhase,
       alive,
       me,
+      needsSpawn,
     );
-    const legalTile = this.legalTile(ownersSlot, spawnPhase, gh, gw);
+    const legalTile = this.legalTile(ownersSlot, needsSpawn, gh, gw);
 
     const terrainInput = new Float32Array(3 * hr * wr);
     terrainInput.set(this.terrainStatic.subarray(0, hr * wr), 0);
