@@ -266,6 +266,7 @@ export default defineConfig(({ mode }) => {
       port: 9000,
       // Fail loud if 9000 is taken (don't silently bind 9001 and split lobbies).
       strictPort: true,
+      allowedHosts: ["openfrontai.skg.gg", "ofai.skg.gg"],
       host: process.env.VITE_HOST === "lan",
       // Automatically open the browser when the server starts
       open: process.env.SKIP_BROWSER_OPEN !== "true",
