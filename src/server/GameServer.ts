@@ -61,6 +61,8 @@ const KICK_REASON_DUPLICATE_SESSION = "kick_reason.duplicate_session";
 const KICK_REASON_LOBBY_CREATOR = "kick_reason.lobby_creator";
 const KICK_REASON_ADMIN = "kick_reason.admin";
 const KICK_REASON_HOST_LEFT = "kick_reason.host_left";
+/** Vite HMR / tab refresh briefly drops the host WS; wait before closing. */
+const HOST_DISCONNECT_GRACE_MS = 15_000;
 const KICK_REASON_TOO_MUCH_DATA = "kick_reason.too_much_data";
 const KICK_REASON_INVALID_MESSAGE = "kick_reason.invalid_message";
 
@@ -128,6 +130,7 @@ export class GameServer {
   private _hasEnded = false;
 
   private lobbyInfoIntervalId: ReturnType<typeof setInterval> | null = null;
+  private hostDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   private visibleAt?: number;
 
@@ -429,6 +432,22 @@ export class GameServer {
     if (this.kickedPersistentIds.has(client.persistentID)) {
       return "kicked";
     }
+    // Ended private lobby (host left for good). Host reconnect within the
+    // grace window clears _hasEnded before this path; everyone else is out.
+    if (this._hasEnded && !this._hasStarted) {
+      this.log.warn("cannot join ended lobby", {
+        clientID: client.clientID,
+        gameID: this.id,
+      });
+      client.ws.send(
+        JSON.stringify({
+          type: "error",
+          error: "lobby-closed",
+          message: "Host left; lobby closed",
+        } satisfies ServerErrorMessage),
+      );
+      return "rejected";
+    }
 
     // OFM: if an allowlist is set, only those publicIds may join. Re-checked on
     // every join attempt
@@ -511,6 +530,17 @@ export class GameServer {
     this.markClientDisconnected(client.clientID, false);
     this.allClients.set(client.clientID, client);
     this.addListeners(client);
+    // Host tab refresh / Vite HMR: cancel pending lobby teardown.
+    if (
+      !this._hasStarted &&
+      client.persistentID === this.creatorPersistentID
+    ) {
+      this.cancelHostDisconnectClose();
+      if (this._hasEnded) {
+        this.log.info("Host rejoined, reopening lobby", { gameID: this.id });
+        this._hasEnded = false;
+      }
+    }
     this.startLobbyInfoBroadcast();
 
     if (this.activeClients.length >= (this.gameConfig.maxPlayers ?? Infinity)) {
@@ -561,6 +591,16 @@ export class GameServer {
 
     client.ws = ws;
     this.addListeners(client);
+    if (
+      !this._hasStarted &&
+      client.persistentID === this.creatorPersistentID
+    ) {
+      this.cancelHostDisconnectClose();
+      if (this._hasEnded) {
+        this.log.info("Host rejoined, reopening lobby", { gameID: this.id });
+        this._hasEnded = false;
+      }
+    }
     this.startLobbyInfoBroadcast();
 
     if (this._hasStarted) {
@@ -686,18 +726,14 @@ export class GameServer {
       if (!this._hasStarted) {
         // Remove persistentId if the game has not started to prevent going over max players
         this.persistentIdToClientId.delete(client.persistentID);
-        // Close lobby when host leaves before game starts
+        // Private lobby: give the host a grace window to reconnect (Vite HMR /
+        // refresh) before tearing the lobby down. Immediate close left guests
+        // joined to a dead lobby that never broadcasts lobby_info again.
         if (
           !this.isPublic() &&
           client.persistentID === this.creatorPersistentID
         ) {
-          this.log.info("Host left, closing lobby", {
-            gameID: this.id,
-          });
-          for (const c of [...this.activeClients]) {
-            this.kickClient(c.clientID, KICK_REASON_HOST_LEFT);
-          }
-          this._hasEnded = true;
+          this.scheduleHostDisconnectClose();
         }
       }
     });
@@ -769,6 +805,36 @@ export class GameServer {
         c.ws.send(msg);
       }
     });
+  }
+
+  private cancelHostDisconnectClose() {
+    if (this.hostDisconnectTimer === null) return;
+    clearTimeout(this.hostDisconnectTimer);
+    this.hostDisconnectTimer = null;
+  }
+
+  private scheduleHostDisconnectClose() {
+    this.cancelHostDisconnectClose();
+    this.log.info("Host disconnected, waiting for reconnect before closing", {
+      gameID: this.id,
+      graceMs: HOST_DISCONNECT_GRACE_MS,
+    });
+    this.hostDisconnectTimer = setTimeout(() => {
+      this.hostDisconnectTimer = null;
+      if (this._hasStarted || this._hasEnded) return;
+      if (
+        this.creatorPersistentID !== undefined &&
+        this.persistentIdToClientId.has(this.creatorPersistentID)
+      ) {
+        return; // host already back
+      }
+      this.log.info("Host left, closing lobby", { gameID: this.id });
+      for (const c of [...this.activeClients]) {
+        this.kickClient(c.clientID, KICK_REASON_HOST_LEFT);
+      }
+      this._hasEnded = true;
+      this.stopLobbyInfoBroadcast();
+    }, HOST_DISCONNECT_GRACE_MS);
   }
 
   private startLobbyInfoBroadcast() {

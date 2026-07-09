@@ -6,6 +6,7 @@
  * picks rarely become silently-discarded intents.
  */
 import { Game } from "../../core/game/Game";
+import { getSpawnTiles } from "../../core/execution/Util";
 import {
   ACTIONS,
   BUILD_TYPES,
@@ -70,12 +71,39 @@ export class IntentTranslator {
   // classmap: 0 neutral/unowned, 1 own, 2 ally, 3 enemy (see features.ts) -
   // equivalent to Python's slot-based owners==me/ally checks since clut is
   // exactly this same own/ally/enemy/neutral partition.
-  private spawnTile(region: number, classmap: Uint8Array): number | null {
-    const valid = new Uint8Array(this.passable.length);
-    for (let i = 0; i < valid.length; i++) {
-      valid[i] = this.passable[i] && classmap[i] === 0 ? 1 : 0;
+  private spawnTile(_region: number, _classmap: Uint8Array): number | null {
+    // TEMP: BC spawn head is untrained and Asia+400 bots fills land before
+    // a policy region pick can land. Mirror SpawnExecution's random path.
+    return this.randomEngineSpawnTile();
+  }
+
+  /** Same criteria as SpawnExecution.getSpawn(undefined): land, unowned,
+   * non-border, and a contiguous spawn blob (requireAllValid). Public so
+   * PlaySession can send a spawn intent instantly, without waiting on the
+   * (slow, async) ONNX policy pass. */
+  randomEngineSpawnTile(): number | null {
+    const mg = this.game;
+    const w = mg.width();
+    const h = mg.height();
+    for (let tries = 0; tries < 1000; tries++) {
+      const tile = mg.ref(randInt(w), randInt(h));
+      if (
+        !mg.isLand(tile) ||
+        mg.hasOwner(tile) ||
+        mg.isBorder(tile) ||
+        mg.isImpassable(tile)
+      ) {
+        continue;
+      }
+      if (getSpawnTiles(mg.map(), tile, true) !== null) return tile;
     }
-    return this.regionTile(region, valid);
+    // Looser fallback if the map is nearly full.
+    for (let tries = 0; tries < 1000; tries++) {
+      const tile = mg.ref(randInt(w), randInt(h));
+      if (!mg.isLand(tile) || mg.hasOwner(tile) || mg.isImpassable(tile)) continue;
+      if (getSpawnTiles(mg.map(), tile, false).length > 0) return tile;
+    }
+    return null;
   }
 
   private boatTile(region: number, classmap: Uint8Array): number | null {
@@ -163,7 +191,11 @@ export class IntentTranslator {
       const meP = ents.players.find((p) => p.id === me);
       if (meP && meP.tiles > 0) return [];
       const tile = this.spawnTile(choice.tileRegion ?? -1, classmap);
-      if (tile === null) return [];
+      if (tile === null) {
+        console.warn("[webbot] spawn: no valid tile (map too full?)");
+        return [];
+      }
+      console.log(`[webbot] spawn tile=${tile}`);
       return [{ type: "spawn", tile }];
     }
     if (name === "expand") {

@@ -66,6 +66,19 @@ export class WebBot {
     this.translator = new IntentTranslator(game, this.featurizer);
   }
 
+  /** Pick a valid spawn tile synchronously (no featurize/ONNX/policy pass).
+   * The spawn window is short (~15-30s) and ONNX inference is too slow to
+   * reliably land a decide()-based spawn before it closes; this mirrors
+   * SpawnExecution's own random-placement rules so it's always legal. */
+  instantSpawn(): Record<string, unknown> | null {
+    if (this.translator === null) {
+      throw new Error("WebBot.startGame() must run before instantSpawn()");
+    }
+    const tile = this.translator.randomEngineSpawnTile();
+    if (tile === null) return null;
+    return { type: "spawn", tile };
+  }
+
   /** One decision: featurize -> AE encode -> policy forward -> sample ->
    * translate. Returns the engine intents to send this tick. */
   async decide(game: Game, clientID: string): Promise<Record<string, unknown>[]> {
