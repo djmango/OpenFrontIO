@@ -46,18 +46,25 @@ export class IntentTranslator {
   }
 
   /** Pick a random valid tile inside the region (engine tile index
-   * y*width+x); null if the region has no valid tile at all. */
-  private regionTile(region: number, valid: Uint8Array): number | null {
+   * y*width+x); null if the region has no valid tile at all. span=2 widens
+   * the search to a 2x2 region block: coarse-head picks (v7 actions outside
+   * REFINE_TILE - boat/nuke/warship) index the top-left /8 region of a /16
+   * coarse cell, and the intended target is the whole cell (mirrors
+   * IntentTranslator.region_tile in rl/ppo_translate.py). */
+  private regionTile(region: number, valid: Uint8Array, span = 1): number | null {
     const stride = Math.max(GW_MAX, this.gw);
     const gy = Math.floor(region / stride);
     const gx = region % stride;
     if (gy >= this.gh || gx >= this.gw) return null; // padded region
     const wr = this.builder.wr;
+    const hr = this.builder.hr;
     const candidates: number[] = [];
-    for (let dy = 0; dy < REGION; dy++) {
+    for (let dy = 0; dy < REGION * span; dy++) {
       const y = gy * REGION + dy;
-      for (let dx = 0; dx < REGION; dx++) {
+      if (y >= hr) break;
+      for (let dx = 0; dx < REGION * span; dx++) {
         const x = gx * REGION + dx;
+        if (x >= wr) break;
         if (valid[y * wr + x]) candidates.push(y * wr + x);
       }
     }
@@ -112,7 +119,16 @@ export class IntentTranslator {
       const c = classmap[i];
       valid[i] = this.passable[i] && c !== 1 && c !== 2 ? 1 : 0;
     }
-    return this.regionTile(region, valid);
+    // The engine resolves boat destinations via targetTransportTile ->
+    // closestShore(owner, dst, 50): a shoreline candidate always resolves,
+    // an inland one only if its owner has shore within 50 tiles by land.
+    // Prefer shore, fall back to any valid tile (mirrors ppo_translate.py).
+    const shoreValid = new Uint8Array(valid.length);
+    for (let i = 0; i < valid.length; i++) {
+      shoreValid[i] = valid[i] && this.builder.shore[i] === 1 ? 1 : 0;
+    }
+    const tile = this.regionTile(region, shoreValid, 2);
+    return tile !== null ? tile : this.regionTile(region, valid, 2);
   }
 
   private buildTile(region: number, classmap: Uint8Array, unit: string): number | null {
@@ -218,7 +234,7 @@ export class IntentTranslator {
       return [{ type: "build_unit", unit, tile }];
     }
     if (name === "launch_nuke") {
-      const tile = this.regionTile(choice.tileRegion ?? -1, this.passable);
+      const tile = this.regionTile(choice.tileRegion ?? -1, this.passable, 2);
       if (tile === null) return [];
       const [unit, up] = NUKE_TYPES[choice.nukeType ?? 0];
       const intent: Record<string, unknown> = { type: "build_unit", unit, tile };
@@ -248,7 +264,7 @@ export class IntentTranslator {
       const ids = a.warships ?? [];
       const water = new Uint8Array(this.builder.land.length);
       for (let i = 0; i < water.length; i++) water[i] = this.builder.land[i] === 0 ? 1 : 0;
-      const tile = this.regionTile(choice.tileRegion ?? -1, water);
+      const tile = this.regionTile(choice.tileRegion ?? -1, water, 2);
       if (ids.length === 0 || tile === null) return [];
       return [{ type: "move_warship", unitIds: ids, tile }];
     }
