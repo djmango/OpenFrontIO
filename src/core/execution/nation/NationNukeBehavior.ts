@@ -41,11 +41,11 @@ export class NationNukeBehavior {
     UnitType.AtomBomb | UnitType.HydrogenBomb,
   ][] = [];
   private atomBombsLaunched = 0;
-  private atomBombPerceivedCost = this.cost(UnitType.AtomBomb);
+  private atomBombPerceivedCost: Gold;
   private hydrogenBombsLaunched = 0;
-  private hydrogenBombPerceivedCost = this.cost(UnitType.HydrogenBomb);
+  private hydrogenBombPerceivedCost: Gold;
   // Make 1/3 of nations "hydro-nations" that only throw hydrogen bombs (to reduce atom bomb spam)
-  private readonly isHydroNation: boolean = this.random.chance(3);
+  private readonly isHydroNation: boolean;
 
   constructor(
     private random: PseudoRandom,
@@ -53,7 +53,14 @@ export class NationNukeBehavior {
     private player: Player,
     private attackBehavior: AiAttackBehavior,
     private emojiBehavior: NationEmojiBehavior,
-  ) {}
+  ) {
+    // With native class-field semantics, field initializers run before
+    // TypeScript parameter properties are assigned. Initialize anything that
+    // reads constructor dependencies here, after `game`/`random` exist.
+    this.atomBombPerceivedCost = this.cost(UnitType.AtomBomb);
+    this.hydrogenBombPerceivedCost = this.cost(UnitType.HydrogenBomb);
+    this.isHydroNation = this.random.chance(3);
+  }
 
   maybeSendNuke() {
     const silos = this.player.units(UnitType.MissileSilo);
