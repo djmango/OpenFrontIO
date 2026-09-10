@@ -98,13 +98,15 @@ export class WebBot {
       gw,
     );
 
-    // grid = [AE latent (32ch), ego own/ally/enemy (3ch), transient (8ch)]
-    // = C_GRID channels, matching rl/obs.py's encode_grids() concatenation.
+    // grid = [AE latent (32ch), ego own/ally/enemy (3ch), defense_bonus
+    // (1ch), transient (53ch)] = C_GRID (89) channels, matching
+    // rust/oftrain/src/policy.rs's channel order (v7 schema).
     const gridSize = gh * gw;
     const grid = new Float32Array(C_GRID * gridSize);
     grid.set(z, 0);
     grid.set(frame.ego, LATENT_C * gridSize);
-    grid.set(frame.transient, (LATENT_C + 3) * gridSize);
+    grid.set(frame.defenseBonusPooled, (LATENT_C + 3) * gridSize);
+    grid.set(frame.transient, (LATENT_C + 3 + 1) * gridSize);
     const gridValid = new Float32Array(gridSize).fill(1);
 
     const out = await this.models.policyForward({
@@ -117,7 +119,6 @@ export class WebBot {
       legalActions: frame.legalActions,
       legalBuild: frame.legalBuild,
       legalNuke: frame.legalNuke,
-      legalTile: frame.legalTile,
       gh,
       gw,
     });
