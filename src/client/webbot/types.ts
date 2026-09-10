@@ -14,6 +14,11 @@ export interface EntityPlayer {
   embargoes: number[];
   reqsIn: number[];
   reqsOut: number[];
+  targets: number[];
+  troopIncome: number;
+  goldIncome: string;
+  doomsday: boolean;
+  doomsdayTicks: number;
 }
 
 export interface EntityUnit {
@@ -26,7 +31,11 @@ export interface EntityUnit {
   ty: number | null;
   samLock: boolean;
   level: number;
+  health: number | null;
+  maxHealth: number | null;
   constructing: boolean;
+  cooldown: boolean;
+  station: boolean;
   troops: number;
 }
 
@@ -36,13 +45,17 @@ export interface EntityAttack {
   to: number;
   troops: number;
   retreating: boolean;
+  srcX: number | null;
+  srcY: number | null;
 }
 
 export interface Entities {
   players: EntityPlayer[];
+  // (a, b, expiresAtTick)
   alliances: [number, number, number][];
   units: EntityUnit[];
   attacks: EntityAttack[];
+  doomsdayEnabled: boolean;
 }
 
 export interface LegalActions {

@@ -18,7 +18,7 @@ import * as ort from "onnxruntime-web/wasm";
 import mjsUrl from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import { assetUrl } from "../../core/AssetUrls";
-import { N_ACTIONS, NUM_STATIC } from "./constants";
+import { N_ACTIONS, NUM_STATIC, P_FEAT } from "./constants";
 
 ort.env.wasm.wasmPaths = { mjs: mjsUrl, wasm: wasmUrl };
 // Threaded wasm needs cross-origin isolation (SharedArrayBuffer) that dev/
@@ -84,12 +84,16 @@ export class WebBotModels {
     legalActions: Float32Array;
     legalBuild: Float32Array;
     legalNuke: Float32Array;
-    legalTile: Float32Array;
     gh: number;
     gw: number;
   }): Promise<PolicyOutputs> {
     if (!this.policySession) throw new Error("WebBotModels.load() not called");
     const { gh, gw } = inputs;
+    // NOTE: the exported graph (ppo_v81, pre-foveation) never applies
+    // legal_tile to any output - torch.onnx tracing prunes it as dead code,
+    // so it is not a declared graph input. Don't feed it; onnxruntime-web
+    // throws "Invalid input name" on unrecognized feeds. Tile legality is
+    // still enforced downstream (see translator.ts / legalTile on the frame).
     const feeds = {
       grid: new ort.Tensor("float32", inputs.grid, [1, inputs.grid.length / (gh * gw), gh, gw]),
       grid_valid: new ort.Tensor("float32", inputs.gridValid, [1, gh, gw]),
@@ -98,13 +102,12 @@ export class WebBotModels {
         inputs.local,
         [1, inputs.local.length / (64 * 64), 64, 64],
       ),
-      players: new ort.Tensor("float32", inputs.players, [1, 128, 12]),
+      players: new ort.Tensor("float32", inputs.players, [1, 128, P_FEAT]),
       pmask: new ort.Tensor("float32", inputs.pmask, [1, 128]),
       scalars: new ort.Tensor("float32", inputs.scalars, [1, inputs.scalars.length]),
       legal_actions: new ort.Tensor("float32", inputs.legalActions, [1, N_ACTIONS]),
       legal_build: new ort.Tensor("float32", inputs.legalBuild, [1, inputs.legalBuild.length]),
       legal_nuke: new ort.Tensor("float32", inputs.legalNuke, [1, inputs.legalNuke.length]),
-      legal_tile: new ort.Tensor("float32", inputs.legalTile, [1, gh, gw]),
     };
     const out = await this.policySession.run(feeds);
     return {

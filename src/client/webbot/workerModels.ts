@@ -112,7 +112,6 @@ export class WorkerModels {
     legalActions: Float32Array;
     legalBuild: Float32Array;
     legalNuke: Float32Array;
-    legalTile: Float32Array;
     gh: number;
     gw: number;
   }): Promise<PolicyOutputs> {
@@ -144,7 +143,6 @@ export class WorkerModels {
           inputs.legalActions.buffer,
           inputs.legalBuild.buffer,
           inputs.legalNuke.buffer,
-          inputs.legalTile.buffer,
         ],
       );
     });

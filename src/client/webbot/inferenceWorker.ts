@@ -39,7 +39,6 @@ interface PolicyRequest {
   legalActions: Float32Array;
   legalBuild: Float32Array;
   legalNuke: Float32Array;
-  legalTile: Float32Array;
   gh: number;
   gw: number;
 }
