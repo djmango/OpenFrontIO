@@ -41,11 +41,11 @@ export class NationNukeBehavior {
     UnitType.AtomBomb | UnitType.HydrogenBomb,
   ][] = [];
   private atomBombsLaunched = 0;
-  private atomBombPerceivedCost = this.cost(UnitType.AtomBomb);
+  private atomBombPerceivedCost!: Gold;
   private hydrogenBombsLaunched = 0;
-  private hydrogenBombPerceivedCost = this.cost(UnitType.HydrogenBomb);
+  private hydrogenBombPerceivedCost!: Gold;
   // Make 1/3 of nations "hydro-nations" that only throw hydrogen bombs (to reduce atom bomb spam)
-  private readonly isHydroNation: boolean = this.random.chance(3);
+  private readonly isHydroNation: boolean;
 
   constructor(
     private random: PseudoRandom,
@@ -53,7 +53,14 @@ export class NationNukeBehavior {
     private player: Player,
     private attackBehavior: AiAttackBehavior,
     private emojiBehavior: NationEmojiBehavior,
-  ) {}
+  ) {
+    // Assigned here, not as field initializers: field initializers run before
+    // parameter properties are bound, so `this.game` / `this.random` are still
+    // undefined at that point (crashes on the first nation nuke decision).
+    this.atomBombPerceivedCost = this.cost(UnitType.AtomBomb);
+    this.hydrogenBombPerceivedCost = this.cost(UnitType.HydrogenBomb);
+    this.isHydroNation = this.random.chance(3);
+  }
 
   maybeSendNuke() {
     const silos = this.player.units(UnitType.MissileSilo);
